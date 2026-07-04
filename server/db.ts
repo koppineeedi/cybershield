@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, vulnerabilityScans, fakeJobReports, companyProfiles, type VulnerabilityScan, type FakeJobReport, type CompanyProfile, type InsertVulnerabilityScan, type InsertFakeJobReport, type InsertCompanyProfile } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,94 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Vulnerability Scan queries
+export async function createVulnerabilityScan(scan: InsertVulnerabilityScan): Promise<VulnerabilityScan | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  try {
+    const result = await db.insert(vulnerabilityScans).values(scan);
+    const id = (result as any).insertId;
+    if (!id) return null;
+    const rows = await db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.id, id)).limit(1);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error("Error creating vulnerability scan:", error);
+    return null;
+  }
+}
+
+export async function getUserVulnerabilityScans(userId: number): Promise<VulnerabilityScan[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.userId, userId)).orderBy(desc(vulnerabilityScans.createdAt));
+}
+
+// Fake Job Report queries
+export async function createFakeJobReport(report: InsertFakeJobReport): Promise<FakeJobReport | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  try {
+    const result = await db.insert(fakeJobReports).values(report);
+    const id = (result as any).insertId;
+    if (!id) return null;
+    const rows = await db.select().from(fakeJobReports).where(eq(fakeJobReports.id, id)).limit(1);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error("Error creating fake job report:", error);
+    return null;
+  }
+}
+
+export async function getUserFakeJobReports(userId: number): Promise<FakeJobReport[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(fakeJobReports).where(eq(fakeJobReports.userId, userId)).orderBy(desc(fakeJobReports.createdAt));
+}
+
+export async function getAllFakeJobReports(): Promise<FakeJobReport[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(fakeJobReports).orderBy(desc(fakeJobReports.createdAt));
+}
+
+// Company Profile queries
+export async function getOrCreateCompanyProfile(companyName: string, website?: string): Promise<CompanyProfile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  try {
+    const existing = await db.select().from(companyProfiles).where(eq(companyProfiles.companyName, companyName)).limit(1);
+    if (existing.length > 0) return existing[0];
+    
+    const newProfile: InsertCompanyProfile = { companyName, website };
+    const result = await db.insert(companyProfiles).values(newProfile);
+    const id = (result as any).insertId;
+    if (!id) return null;
+    const rows = await db.select().from(companyProfiles).where(eq(companyProfiles.id, id)).limit(1);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error("Error getting or creating company profile:", error);
+    return null;
+  }
+}
+
+export async function getCompanyProfile(companyName: string): Promise<CompanyProfile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const result = await db.select().from(companyProfiles).where(eq(companyProfiles.companyName, companyName)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function updateCompanyProfile(companyName: string, updates: Partial<Omit<CompanyProfile, 'id' | 'companyName' | 'createdAt'>>): Promise<CompanyProfile | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  await db.update(companyProfiles).set(updates).where(eq(companyProfiles.companyName, companyName));
+  return getCompanyProfile(companyName);
+}

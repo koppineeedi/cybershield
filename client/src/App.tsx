@@ -5,12 +5,28 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Login from "./pages/auth/Login";
+import Signup from "./pages/auth/Signup";
+import Dashboard from "./pages/Dashboard";
+import VulnerabilityScanner from "./pages/VulnerabilityScanner";
+import JobDetector from "./pages/JobDetector";
+import CompanyVerifier from "./pages/CompanyVerifier";
+import SavedReports from "./pages/SavedReports";
+import Analytics from "./pages/Analytics";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={Login} />
+      <Route path={"/signup"} component={Signup} />
+      <Route path={"/dashboard"} component={Dashboard} />
+      <Route path={"/scanner"} component={VulnerabilityScanner} />
+      <Route path={"/job-detector"} component={JobDetector} />
+      <Route path={"/company-verifier"} component={CompanyVerifier} />
+      <Route path={"/reports"} component={SavedReports} />
+      <Route path={"/analytics"} component={Analytics} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
@@ -27,7 +43,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider
-        defaultTheme="light"
+        defaultTheme="dark"
         // switchable
       >
         <TooltipProvider>
