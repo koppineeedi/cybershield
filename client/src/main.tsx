@@ -37,10 +37,27 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+const getApiUrl = () => {
+  // In development, use relative URL
+  if (typeof window === "undefined") return "/api/trpc";
+  
+  // In production on Render or other deployments, construct full URL
+  const protocol = window.location.protocol;
+  const host = window.location.host;
+  
+  // Check if we're on a deployed environment
+  if (host.includes("render.com") || host.includes("manus.computer") || host.includes("manus.space")) {
+    return `${protocol}//${host}/api/trpc`;
+  }
+  
+  // Default to relative URL
+  return "/api/trpc";
+};
+
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: getApiUrl(),
       transformer: superjson,
       headers() {
         // Preview auto-login fallback: when the browser blocks iframe cookies

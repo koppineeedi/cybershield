@@ -135,6 +135,70 @@ export default function SavedReports() {
     toast.success("All reports exported successfully!");
   };
 
+  // Export all reports as PDF (filtered only)
+  const handleExportPDF = () => {
+    if (filteredReports.length === 0) {
+      toast.error("No reports to export");
+      return;
+    }
+
+    // Create a simple HTML representation for PDF
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>CyberShield Reports</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; background: #0f172a; color: #e2e8f0; }
+          h1 { color: #a78bfa; border-bottom: 2px solid #06b6d4; padding-bottom: 10px; }
+          .report { page-break-inside: avoid; margin: 20px 0; padding: 15px; border: 1px solid #475569; border-radius: 8px; background: #1e293b; }
+          .report-title { font-size: 16px; font-weight: bold; color: #06b6d4; margin-bottom: 10px; }
+          .report-meta { font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
+          .report-content { font-size: 13px; line-height: 1.6; }
+          .status-safe { color: #22c55e; }
+          .status-warning { color: #eab308; }
+          .status-critical { color: #ef4444; }
+          .status-real { color: #22c55e; }
+          .status-fake { color: #ef4444; }
+        </style>
+      </head>
+      <body>
+        <h1>CyberShield - Security Reports</h1>
+        <p>Generated on: ${new Date().toLocaleString()}</p>
+        <p>Total Reports: ${filteredReports.length}</p>
+        <hr style="border: 1px solid #475569;">
+        ${filteredReports.map((report) => `
+          <div class="report">
+            <div class="report-title">${report.title}</div>
+            <div class="report-meta">
+              <strong>Type:</strong> ${report.type} | <strong>Date:</strong> ${report.date}
+            </div>
+            <div class="report-content">
+              <p><strong>Target:</strong> ${report.target}</p>
+              <p><strong>Status:</strong> 
+                <span class="${report.threatLevel ? `status-${report.threatLevel}` : `status-${report.verdict}`}">
+                  ${report.threatLevel || report.verdict || "N/A"}
+                </span>
+              </p>
+              <p><strong>Analysis:</strong></p>
+              <p>${report.analysis || "No analysis available"}</p>
+            </div>
+          </div>
+        `).join('')}
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cybershield-reports-${new Date().toISOString()}.html`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filteredReports.length} reports as PDF successfully!`);
+  };
+
   const getStatusColor = (report: any) => {
     if (report.threatLevel) {
       switch (report.threatLevel) {
