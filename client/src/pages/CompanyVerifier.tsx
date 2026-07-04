@@ -6,14 +6,18 @@ import { Label } from "@/components/ui/label";
 import { useLocation } from "wouter";
 import { Shield, CheckCircle, AlertCircle, ArrowLeft, Globe, Check, X } from "lucide-react";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function CompanyVerifier() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
   const [result, setResult] = useState<any>(null);
+
+  // tRPC mutations
+  const verifyMutation = trpc.companyVerifier.verify.useMutation();
 
   if (!isAuthenticated) {
     return (
@@ -36,29 +40,28 @@ export default function CompanyVerifier() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyName) return;
+    if (!companyName) {
+      toast.error("Please enter a company name");
+      return;
+    }
 
-    setIsVerifying(true);
-    // Simulate verification - in real implementation, call API
-    setTimeout(() => {
-      const isVerified = Math.random() > 0.3;
-      setResult({
+    try {
+      const verifyResult = await verifyMutation.mutateAsync({
         companyName,
-        website,
-        isVerified,
-        platformVerdicts: [
-          { platform: "LinkedIn", verified: true, status: "Verified" },
-          { platform: "Crunchbase", verified: true, status: "Listed" },
-          { platform: "BBB", verified: Math.random() > 0.5, status: Math.random() > 0.5 ? "Accredited" : "Not Found" },
-          { platform: "Company Website", verified: true, status: "Active" },
-          { platform: "SEC Filings", verified: Math.random() > 0.6, status: Math.random() > 0.6 ? "Filed" : "Not Found" },
-        ],
-        analysis: isVerified
-          ? "This company appears to be legitimate with verified presence across multiple platforms."
-          : "This company has limited verification across platforms. Exercise caution.",
+        website: website || undefined,
       });
-      setIsVerifying(false);
-    }, 2000);
+
+      if (verifyResult) {
+        setResult({
+          ...verifyResult,
+          platformVerdicts: verifyResult.platformVerdicts || [],
+        });
+        toast.success("Verification completed!");
+      }
+    } catch (error) {
+      toast.error("Verification failed. Please try again.");
+      console.error("Verification error:", error);
+    }
   };
 
   return (
@@ -118,10 +121,10 @@ export default function CompanyVerifier() {
 
               <Button
                 type="submit"
-                disabled={isVerifying || !companyName}
+                disabled={verifyMutation.isPending || !companyName}
                 className="w-full bg-accent hover:bg-accent/90"
               >
-                {isVerifying ? "Verifying..." : "Verify Company"}
+                {verifyMutation.isPending ? "Verifying..." : "Verify Company"}
               </Button>
             </form>
           </Card>
@@ -180,26 +183,28 @@ export default function CompanyVerifier() {
               </Card>
 
               {/* Platform Verdicts */}
-              <Card className="bg-card/50 border-border/50 p-8">
-                <h3 className="text-xl font-semibold mb-4">Platform Verification</h3>
-                <div className="space-y-3">
-                  {result.platformVerdicts.map((verdict: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between p-4 bg-card/50 rounded-lg border border-border/50">
-                      <div className="flex items-center gap-3">
-                        {verdict.verified ? (
-                          <Check className="w-5 h-5 text-green-400" />
-                        ) : (
-                          <X className="w-5 h-5 text-red-400" />
-                        )}
-                        <span className="font-semibold">{verdict.platform}</span>
+              {result.platformVerdicts && result.platformVerdicts.length > 0 && (
+                <Card className="bg-card/50 border-border/50 p-8">
+                  <h3 className="text-xl font-semibold mb-4">Platform Verification</h3>
+                  <div className="space-y-3">
+                    {result.platformVerdicts.map((verdict: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between p-4 bg-card/50 rounded-lg border border-border/50">
+                        <div className="flex items-center gap-3">
+                          {verdict.verified ? (
+                            <Check className="w-5 h-5 text-green-400" />
+                          ) : (
+                            <X className="w-5 h-5 text-red-400" />
+                          )}
+                          <span className="font-semibold">{verdict.platform}</span>
+                        </div>
+                        <span className={`text-sm ${verdict.verified ? "text-green-400" : "text-red-400"}`}>
+                          {verdict.status}
+                        </span>
                       </div>
-                      <span className={`text-sm ${verdict.verified ? "text-green-400" : "text-red-400"}`}>
-                        {verdict.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+                    ))}
+                  </div>
+                </Card>
+              )}
 
               {/* Analysis */}
               <Card className="bg-card/50 border-border/50 p-8">

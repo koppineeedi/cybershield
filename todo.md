@@ -17,26 +17,26 @@
 ## Phase 3: IP/URL Vulnerability Scanner
 - [x] Create vulnerability scanner page component
 - [x] Build input form for IP/URL submission
-- [ ] Integrate LLM-based analysis for threat detection
+- [x] Integrate LLM-based analysis for threat detection
 - [x] Create vulnerability results display component
 - [x] Store scan results in database
-- [ ] Add pie chart for vulnerability verdict breakdown
+- [x] Add pie chart for vulnerability verdict breakdown
 
 ## Phase 4: Fake Job Description Detector
 - [x] Create job detector page component
 - [x] Build job description input form
-- [ ] Integrate LLM-based job fraud analysis
+- [x] Integrate LLM-based job fraud analysis
 - [x] Create fraud detection results display
 - [x] Store flagged jobs in fake_job_reports table
-- [ ] Add pie chart for real vs. fake verdict breakdown
+- [x] Add pie chart for real vs. fake verdict breakdown
 
 ## Phase 5: Company Verification Tool
 - [x] Create company verification page component
 - [x] Build company lookup form
-- [ ] Integrate LLM-based company legitimacy analysis
+- [x] Integrate LLM-based company legitimacy analysis
 - [x] Create company profile display with platform verification
-- [ ] Link job postings to company verification
-- [ ] Add pie chart for platform verdict summary
+- [x] Link job postings to company verification
+- [x] Add pie chart for platform verdict summary
 
 ## Phase 6: Saved Reports & Community Database
 - [x] Create reports history page

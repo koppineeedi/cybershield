@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { useLocation } from "wouter";
 import { Shield, AlertTriangle, CheckCircle, AlertCircle, ArrowLeft } from "lucide-react";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function JobDetector() {
   const { isAuthenticated } = useAuth();
@@ -14,8 +16,13 @@ export default function JobDetector() {
   const [jobTitle, setJobTitle] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [jobDescription, setJobDescription] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<any>(null);
+
+  // tRPC mutations and queries
+  const analyzeMutation = trpc.jobDetector.analyze.useMutation();
+  const { data: userReports } = trpc.jobDetector.getUserReports.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
 
   if (!isAuthenticated) {
     return (
@@ -38,26 +45,29 @@ export default function JobDetector() {
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!jobTitle || !companyName || !jobDescription) return;
+    if (!jobTitle || !companyName || !jobDescription) {
+      toast.error("Please fill in all fields");
+      return;
+    }
 
-    setIsAnalyzing(true);
-    // Simulate analysis - in real implementation, call API
-    setTimeout(() => {
-      const verdict = Math.random() > 0.5 ? "real" : Math.random() > 0.5 ? "fake" : "suspicious";
-      setResult({
+    try {
+      const analysisResult = await analyzeMutation.mutateAsync({
         jobTitle,
         companyName,
-        verdict,
-        redFlags: [
-          "Unusually high salary offer",
-          "Vague job responsibilities",
-          "Poor grammar and spelling",
-          "Requests for upfront payment",
-        ],
-        analysis: "This job posting shows several suspicious characteristics. We recommend verifying the company directly before applying.",
+        jobDescription,
       });
-      setIsAnalyzing(false);
-    }, 2000);
+
+      if (analysisResult) {
+        setResult({
+          ...analysisResult,
+          redFlags: JSON.parse(analysisResult.redFlags || "[]"),
+        });
+        toast.success("Analysis completed successfully!");
+      }
+    } catch (error) {
+      toast.error("Analysis failed. Please try again.");
+      console.error("Analysis error:", error);
+    }
   };
 
   const getVerdictColor = (verdict: string) => {
@@ -155,10 +165,10 @@ export default function JobDetector() {
 
               <Button
                 type="submit"
-                disabled={isAnalyzing || !jobTitle || !companyName || !jobDescription}
+                disabled={analyzeMutation.isPending || !jobTitle || !companyName || !jobDescription}
                 className="w-full bg-accent hover:bg-accent/90"
               >
-                {isAnalyzing ? "Analyzing..." : "Analyze Job Posting"}
+                {analyzeMutation.isPending ? "Analyzing..." : "Analyze Job Posting"}
               </Button>
             </form>
           </Card>
@@ -211,17 +221,19 @@ export default function JobDetector() {
               </Card>
 
               {/* Red Flags */}
-              <Card className="bg-card/50 border-border/50 p-8">
-                <h3 className="text-xl font-semibold mb-4">Detected Red Flags</h3>
-                <div className="space-y-2">
-                  {result.redFlags.map((flag: string, idx: number) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-card/50 rounded-lg">
-                      <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                      <span>{flag}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+              {result.redFlags && result.redFlags.length > 0 && (
+                <Card className="bg-card/50 border-border/50 p-8">
+                  <h3 className="text-xl font-semibold mb-4">Detected Red Flags</h3>
+                  <div className="space-y-2">
+                    {result.redFlags.map((flag: string, idx: number) => (
+                      <div key={idx} className="flex items-center gap-3 p-3 bg-card/50 rounded-lg">
+                        <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                        <span>{flag}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
 
               {/* Analysis */}
               <Card className="bg-card/50 border-border/50 p-8">
@@ -251,6 +263,30 @@ export default function JobDetector() {
                 >
                   View All Reports
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Recent Reports */}
+          {userReports && userReports.length > 0 && !result && (
+            <div className="mt-12">
+              <h3 className="text-2xl font-bold mb-4">Your Recent Analyses</h3>
+              <div className="space-y-3">
+                {userReports.slice(0, 5).map((report: any) => (
+                  <Card key={report.id} className="bg-card/50 border-border/50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold">{report.jobTitle}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {report.companyName} • {new Date(report.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className={`px-3 py-1 rounded text-sm font-semibold ${getVerdictColor(report.verdict)}`}>
+                        {report.verdict.toUpperCase()}
+                      </span>
+                    </div>
+                  </Card>
+                ))}
               </div>
             </div>
           )}
