@@ -15,6 +15,13 @@
       "when": 1783151806227,
       "tag": "0001_naive_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783152989759,
+      "tag": "0002_familiar_lilith",
+      "breakpoints": true
     }
   ]
 }

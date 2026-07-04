@@ -1,6 +1,14 @@
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, vulnerabilityScans, fakeJobReports, companyProfiles, type VulnerabilityScan, type FakeJobReport, type CompanyProfile, type InsertVulnerabilityScan, type InsertFakeJobReport, type InsertCompanyProfile } from "../drizzle/schema";
+import { 
+  InsertUser, users, vulnerabilityScans, fakeJobReports, companyProfiles, 
+  twoFactorTokens, userSessions, auditLogs, notifications, activityFeed,
+  type VulnerabilityScan, type FakeJobReport, type CompanyProfile, 
+  type InsertVulnerabilityScan, type InsertFakeJobReport, type InsertCompanyProfile,
+  type TwoFactorToken, type InsertTwoFactorToken, type UserSession, type InsertUserSession,
+  type AuditLog, type InsertAuditLog, type Notification, type InsertNotification,
+  type ActivityFeed, type InsertActivityFeed, type User
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -18,9 +26,11 @@ export async function getDb() {
   return _db;
 }
 
+// ============ User Management ============
+
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
+  if (!user.openId && !user.email) {
+    throw new Error("User openId or email is required for upsert");
   }
 
   const db = await getDb();
@@ -31,11 +41,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
   try {
     const values: InsertUser = {
-      openId: user.openId,
+      email: user.email || "",
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod"] as const;
+    if (user.openId) {
+      values.openId = user.openId;
+    }
+
+    const textFields = ["name", "loginMethod", "passwordHash"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -77,7 +91,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 }
 
-export async function getUserByOpenId(openId: string) {
+export async function getUserByOpenId(openId: string): Promise<User | undefined> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get user: database not available");
@@ -85,98 +99,232 @@ export async function getUserByOpenId(openId: string) {
   }
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
-// Vulnerability Scan queries
-export async function createVulnerabilityScan(scan: InsertVulnerabilityScan): Promise<VulnerabilityScan | null> {
+export async function getUserByEmail(email: string): Promise<User | undefined> {
   const db = await getDb();
-  if (!db) return null;
-  
-  try {
-    const result = await db.insert(vulnerabilityScans).values(scan);
-    const id = (result as any).insertId;
-    if (!id) return null;
-    const rows = await db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.id, id)).limit(1);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (error) {
-    console.error("Error creating vulnerability scan:", error);
-    return null;
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
   }
+
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserById(id: number): Promise<User | undefined> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createUser(user: InsertUser): Promise<User> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  const result = await db.insert(users).values(user);
+  const userId = result[0].insertId;
+  const newUser = await getUserById(Number(userId));
+  if (!newUser) throw new Error("Failed to create user");
+  return newUser;
+}
+
+export async function updateUser(id: number, updates: Partial<InsertUser>): Promise<User> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  await db.update(users).set(updates).where(eq(users.id, id));
+  const updated = await getUserById(id);
+  if (!updated) throw new Error("Failed to update user");
+  return updated;
+}
+
+// ============ 2FA Tokens ============
+
+export async function createTwoFactorToken(token: InsertTwoFactorToken): Promise<TwoFactorToken> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(twoFactorTokens).values(token);
+  const tokenId = result[0].insertId;
+  const newToken = await db.select().from(twoFactorTokens).where(eq(twoFactorTokens.id, Number(tokenId))).limit(1);
+  if (!newToken || newToken.length === 0) throw new Error("Failed to create token");
+  return newToken[0];
+}
+
+export async function getTwoFactorToken(token: string): Promise<TwoFactorToken | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.select().from(twoFactorTokens).where(eq(twoFactorTokens.token, token)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function markTwoFactorTokenAsUsed(token: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(twoFactorTokens).set({ isUsed: 1 }).where(eq(twoFactorTokens.token, token));
+}
+
+// ============ User Sessions ============
+
+export async function createUserSession(session: InsertUserSession): Promise<UserSession> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(userSessions).values(session);
+  const sessionId = result[0].insertId;
+  const newSession = await db.select().from(userSessions).where(eq(userSessions.id, Number(sessionId))).limit(1);
+  if (!newSession || newSession.length === 0) throw new Error("Failed to create session");
+  return newSession[0];
+}
+
+export async function getUserSession(sessionToken: string): Promise<UserSession | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.select().from(userSessions).where(eq(userSessions.sessionToken, sessionToken)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function deleteUserSession(sessionToken: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.delete(userSessions).where(eq(userSessions.sessionToken, sessionToken));
+}
+
+// ============ Audit Logs ============
+
+export async function createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(auditLogs).values(log);
+  const logId = result[0].insertId;
+  const newLog = await db.select().from(auditLogs).where(eq(auditLogs.id, Number(logId))).limit(1);
+  if (!newLog || newLog.length === 0) throw new Error("Failed to create audit log");
+  return newLog[0];
+}
+
+// ============ Notifications ============
+
+export async function createNotification(notification: InsertNotification): Promise<Notification> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(notifications).values(notification);
+  const notifId = result[0].insertId;
+  const newNotif = await db.select().from(notifications).where(eq(notifications.id, Number(notifId))).limit(1);
+  if (!newNotif || newNotif.length === 0) throw new Error("Failed to create notification");
+  return newNotif[0];
+}
+
+export async function getUserNotifications(userId: number): Promise<Notification[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(notifications).where(eq(notifications.userId, userId));
+}
+
+export async function markNotificationAsRead(notificationId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(notifications).set({ isRead: 1 }).where(eq(notifications.id, notificationId));
+}
+
+// ============ Activity Feed ============
+
+export async function createActivityFeedEntry(entry: InsertActivityFeed): Promise<ActivityFeed> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(activityFeed).values(entry);
+  const entryId = result[0].insertId;
+  const newEntry = await db.select().from(activityFeed).where(eq(activityFeed.id, Number(entryId))).limit(1);
+  if (!newEntry || newEntry.length === 0) throw new Error("Failed to create activity entry");
+  return newEntry[0];
+}
+
+export async function getUserActivityFeed(userId: number, limit: number = 50): Promise<ActivityFeed[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(activityFeed).where(eq(activityFeed.userId, userId)).orderBy(activityFeed.createdAt).limit(limit);
+}
+
+// ============ Existing Scanner Functions ============
+
+export async function createVulnerabilityScan(scan: InsertVulnerabilityScan): Promise<VulnerabilityScan> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(vulnerabilityScans).values(scan);
+  const scanId = result[0].insertId;
+  const newScan = await db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.id, Number(scanId))).limit(1);
+  if (!newScan || newScan.length === 0) throw new Error("Failed to create scan");
+  return newScan[0];
 }
 
 export async function getUserVulnerabilityScans(userId: number): Promise<VulnerabilityScan[]> {
   const db = await getDb();
   if (!db) return [];
-  
-  return db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.userId, userId)).orderBy(desc(vulnerabilityScans.createdAt));
+
+  return await db.select().from(vulnerabilityScans).where(eq(vulnerabilityScans.userId, userId));
 }
 
-// Fake Job Report queries
-export async function createFakeJobReport(report: InsertFakeJobReport): Promise<FakeJobReport | null> {
+export async function createFakeJobReport(report: InsertFakeJobReport): Promise<FakeJobReport> {
   const db = await getDb();
-  if (!db) return null;
-  
-  try {
-    const result = await db.insert(fakeJobReports).values(report);
-    const id = (result as any).insertId;
-    if (!id) return null;
-    const rows = await db.select().from(fakeJobReports).where(eq(fakeJobReports.id, id)).limit(1);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (error) {
-    console.error("Error creating fake job report:", error);
-    return null;
-  }
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(fakeJobReports).values(report);
+  const reportId = result[0].insertId;
+  const newReport = await db.select().from(fakeJobReports).where(eq(fakeJobReports.id, Number(reportId))).limit(1);
+  if (!newReport || newReport.length === 0) throw new Error("Failed to create report");
+  return newReport[0];
 }
 
 export async function getUserFakeJobReports(userId: number): Promise<FakeJobReport[]> {
   const db = await getDb();
   if (!db) return [];
-  
-  return db.select().from(fakeJobReports).where(eq(fakeJobReports.userId, userId)).orderBy(desc(fakeJobReports.createdAt));
+
+  return await db.select().from(fakeJobReports).where(eq(fakeJobReports.userId, userId));
 }
 
 export async function getAllFakeJobReports(): Promise<FakeJobReport[]> {
   const db = await getDb();
   if (!db) return [];
-  
-  return db.select().from(fakeJobReports).orderBy(desc(fakeJobReports.createdAt));
+
+  return await db.select().from(fakeJobReports);
 }
 
-// Company Profile queries
-export async function getOrCreateCompanyProfile(companyName: string, website?: string): Promise<CompanyProfile | null> {
+export async function createCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile> {
   const db = await getDb();
-  if (!db) return null;
-  
-  try {
-    const existing = await db.select().from(companyProfiles).where(eq(companyProfiles.companyName, companyName)).limit(1);
-    if (existing.length > 0) return existing[0];
-    
-    const newProfile: InsertCompanyProfile = { companyName, website };
-    const result = await db.insert(companyProfiles).values(newProfile);
-    const id = (result as any).insertId;
-    if (!id) return null;
-    const rows = await db.select().from(companyProfiles).where(eq(companyProfiles.id, id)).limit(1);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (error) {
-    console.error("Error getting or creating company profile:", error);
-    return null;
-  }
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(companyProfiles).values(profile);
+  const profileId = result[0].insertId;
+  const newProfile = await db.select().from(companyProfiles).where(eq(companyProfiles.id, Number(profileId))).limit(1);
+  if (!newProfile || newProfile.length === 0) throw new Error("Failed to create company profile");
+  return newProfile[0];
 }
 
-export async function getCompanyProfile(companyName: string): Promise<CompanyProfile | null> {
+export async function getCompanyProfile(companyName: string): Promise<CompanyProfile | undefined> {
   const db = await getDb();
-  if (!db) return null;
-  
+  if (!db) return undefined;
+
   const result = await db.select().from(companyProfiles).where(eq(companyProfiles.companyName, companyName)).limit(1);
-  return result.length > 0 ? result[0] : null;
-}
-
-export async function updateCompanyProfile(companyName: string, updates: Partial<Omit<CompanyProfile, 'id' | 'companyName' | 'createdAt'>>): Promise<CompanyProfile | null> {
-  const db = await getDb();
-  if (!db) return null;
-  
-  await db.update(companyProfiles).set(updates).where(eq(companyProfiles.companyName, companyName));
-  return getCompanyProfile(companyName);
+  return result.length > 0 ? result[0] : undefined;
 }

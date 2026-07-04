@@ -6,19 +6,11 @@ import { z } from "zod";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
+import { authRouter } from "./auth-procedures";
 
 export const appRouter = router({
   system: systemRouter,
-  auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
-    }),
-  }),
+  auth: authRouter,
 
   // Vulnerability Scanner
   scanner: router({
@@ -284,10 +276,16 @@ Check against known platforms: LinkedIn, Crunchbase, BBB, SEC Filings, official 
           const contentStr = typeof messageContent === 'string' ? messageContent : '';
           const analysisData = JSON.parse(contentStr || "{}");
 
-          const profile = await db.getOrCreateCompanyProfile(
-            input.companyName,
-            input.website
-          );
+          let profile = await db.getCompanyProfile(input.companyName);
+          if (!profile) {
+            profile = await db.createCompanyProfile({
+              companyName: input.companyName,
+              website: input.website,
+              isVerified: 0,
+              platformVerdicts: JSON.stringify(analysisData.platformVerdicts || {}),
+              analysis: JSON.stringify(analysisData),
+            });
+          }
 
           if (profile) {
             // Update profile with verification data

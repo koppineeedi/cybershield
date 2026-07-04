@@ -297,7 +297,7 @@ class SDKServer {
         await db.upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,
-          email: userInfo.email ?? null,
+          email: userInfo.email || 'oauth@manus.internal',
           loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
           lastSignedIn: signedInAt,
         });
@@ -314,6 +314,7 @@ class SDKServer {
 
     await db.upsertUser({
       openId: user.openId,
+      email: user.email || 'oauth@manus.internal',
       lastSignedIn: signedInAt,
     });
 
@@ -337,8 +338,17 @@ function buildCronUser(
     id: -1,
     openId: userInfo.openId,
     name: userInfo.name || "Manus Scheduled Task",
-    email: null,
+    email: userInfo.email || 'cron@manus.internal',
+    passwordHash: null,
     loginMethod: null,
+    twoFactorEnabled: 0,
+    twoFactorMethod: null,
+    totpSecret: null,
+    phoneNumber: null,
+    isEmailVerified: 0,
+    accountLocked: 0,
+    failedLoginAttempts: 0,
+    lastFailedLoginAt: null,
     role: "user",
     createdAt: now,
     updatedAt: now,
