@@ -130,9 +130,8 @@ export const authRouter = router({
       const sessionToken = crypto.randomBytes(32).toString("hex");
       await db.createUserSession({
         userId: user.id,
-        token: sessionToken,
+        sessionToken: sessionToken,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        isActive: 1,
       });
 
       return { success: true, requires2FA: false, user, sessionToken };
@@ -159,9 +158,8 @@ export const authRouter = router({
       const sessionToken = crypto.randomBytes(32).toString("hex");
       await db.createUserSession({
         userId: user.id,
-        token: sessionToken,
+        sessionToken: sessionToken,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        isActive: 1,
       });
 
       return { success: true, user, sessionToken };
