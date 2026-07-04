@@ -3,12 +3,96 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useLocation } from "wouter";
 import { Shield, ArrowLeft, TrendingUp } from "lucide-react";
-import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
+import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from "recharts";
+import { useMemo } from "react";
+import { trpc } from "@/lib/trpc";
 
 export default function Analytics() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
 
+  // Fetch real data - must be called unconditionally
+  const { data: userScans } = trpc.scanner.getUserScans.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+  const { data: userJobReports } = trpc.jobDetector.getUserReports.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+
+  // Calculate vulnerability data from real scans - must be called unconditionally
+  const vulnerabilityData = useMemo(() => {
+    if (!userScans || userScans.length === 0) {
+      return [
+        { name: "Safe", value: 0, fill: "#4ade80" },
+        { name: "Warning", value: 0, fill: "#facc15" },
+        { name: "Critical", value: 0, fill: "#f87171" },
+      ];
+    }
+
+    const counts = {
+      safe: userScans.filter((s: any) => s.threatLevel === "safe").length,
+      warning: userScans.filter((s: any) => s.threatLevel === "warning").length,
+      critical: userScans.filter((s: any) => s.threatLevel === "critical").length,
+    };
+
+    return [
+      { name: "Safe", value: counts.safe, fill: "#4ade80" },
+      { name: "Warning", value: counts.warning, fill: "#facc15" },
+      { name: "Critical", value: counts.critical, fill: "#f87171" },
+    ];
+  }, [userScans]);
+
+  // Calculate job verdict data from real reports - must be called unconditionally
+  const jobVerdictData = useMemo(() => {
+    if (!userJobReports || userJobReports.length === 0) {
+      return [
+        { name: "Real", value: 0, fill: "#4ade80" },
+        { name: "Suspicious", value: 0, fill: "#facc15" },
+        { name: "Fake", value: 0, fill: "#f87171" },
+      ];
+    }
+
+    const counts = {
+      real: userJobReports.filter((r: any) => r.verdict === "real").length,
+      suspicious: userJobReports.filter((r: any) => r.verdict === "suspicious").length,
+      fake: userJobReports.filter((r: any) => r.verdict === "fake").length,
+    };
+
+    return [
+      { name: "Real", value: counts.real, fill: "#4ade80" },
+      { name: "Suspicious", value: counts.suspicious, fill: "#facc15" },
+      { name: "Fake", value: counts.fake, fill: "#f87171" },
+    ];
+  }, [userJobReports]);
+
+  // Calculate total activity metrics - must be called unconditionally
+  const metrics = useMemo(() => {
+    const totalScans = userScans?.length || 0;
+    const totalReports = userJobReports?.length || 0;
+    const vulnerableScans = userScans?.filter((s: any) => s.threatLevel !== "safe").length || 0;
+    const fakeJobs = userJobReports?.filter((r: any) => r.verdict === "fake").length || 0;
+
+    return {
+      totalScans,
+      totalReports,
+      vulnerableScans,
+      fakeJobs,
+    };
+  }, [userScans, userJobReports]);
+
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-card border border-border/50 p-3 rounded-lg">
+          <p className="text-sm font-semibold">{payload[0].name}</p>
+          <p className="text-sm text-accent">{payload[0].value} items</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Now we can safely return early if not authenticated
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
@@ -27,47 +111,6 @@ export default function Analytics() {
       </div>
     );
   }
-
-  // Mock data for charts
-  const vulnerabilityData = [
-    { name: "Safe", value: 45, fill: "#4ade80" },
-    { name: "Warning", value: 30, fill: "#facc15" },
-    { name: "Critical", value: 25, fill: "#f87171" },
-  ];
-
-  const jobVerdictData = [
-    { name: "Real", value: 60, fill: "#4ade80" },
-    { name: "Suspicious", value: 25, fill: "#facc15" },
-    { name: "Fake", value: 15, fill: "#f87171" },
-  ];
-
-  const platformData = [
-    { name: "Verified", value: 70, fill: "#4ade80" },
-    { name: "Unverified", value: 20, fill: "#facc15" },
-    { name: "Suspicious", value: 10, fill: "#f87171" },
-  ];
-
-  const trendData = [
-    { name: "Mon", scans: 12, reports: 8 },
-    { name: "Tue", scans: 19, reports: 12 },
-    { name: "Wed", scans: 15, reports: 10 },
-    { name: "Thu", scans: 22, reports: 18 },
-    { name: "Fri", scans: 28, reports: 22 },
-    { name: "Sat", scans: 18, reports: 14 },
-    { name: "Sun", scans: 14, reports: 10 },
-  ];
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-card border border-border/50 p-3 rounded-lg">
-          <p className="text-sm font-semibold">{payload[0].name}</p>
-          <p className="text-sm text-accent">{payload[0].value} scans</p>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -98,44 +141,24 @@ export default function Analytics() {
           {/* Key Metrics */}
           <div className="grid md:grid-cols-4 gap-4 mb-8">
             <Card className="bg-card/50 border-border/50 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-muted-foreground text-sm mb-2">Total Scans</p>
-                  <p className="text-3xl font-bold">128</p>
-                </div>
-                <TrendingUp className="w-10 h-10 text-accent/50" />
-              </div>
+              <div className="text-muted-foreground text-sm mb-2">Total Scans</div>
+              <div className="text-3xl font-bold text-accent">{metrics.totalScans}</div>
             </Card>
             <Card className="bg-card/50 border-border/50 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-muted-foreground text-sm mb-2">Threats Detected</p>
-                  <p className="text-3xl font-bold">34</p>
-                </div>
-                <TrendingUp className="w-10 h-10 text-red-400/50" />
-              </div>
+              <div className="text-muted-foreground text-sm mb-2">Vulnerable Scans</div>
+              <div className="text-3xl font-bold text-red-400">{metrics.vulnerableScans}</div>
             </Card>
             <Card className="bg-card/50 border-border/50 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-muted-foreground text-sm mb-2">Fraud Cases</p>
-                  <p className="text-3xl font-bold">12</p>
-                </div>
-                <TrendingUp className="w-10 h-10 text-yellow-400/50" />
-              </div>
+              <div className="text-muted-foreground text-sm mb-2">Job Reports</div>
+              <div className="text-3xl font-bold text-accent">{metrics.totalReports}</div>
             </Card>
             <Card className="bg-card/50 border-border/50 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-muted-foreground text-sm mb-2">Safe Sites</p>
-                  <p className="text-3xl font-bold">82</p>
-                </div>
-                <TrendingUp className="w-10 h-10 text-green-400/50" />
-              </div>
+              <div className="text-muted-foreground text-sm mb-2">Fake Jobs Detected</div>
+              <div className="text-3xl font-bold text-red-400">{metrics.fakeJobs}</div>
             </Card>
           </div>
 
-          {/* Charts Grid */}
+          {/* Charts */}
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             {/* Vulnerability Status */}
             <Card className="bg-card/50 border-border/50 p-8">
@@ -148,7 +171,7 @@ export default function Analytics() {
                     cy="50%"
                     labelLine={false}
                     label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={100}
+                    outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
                   >
@@ -156,15 +179,15 @@ export default function Analytics() {
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip content={<CustomTooltip />} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
             </Card>
 
-            {/* Job Posting Verdict */}
+            {/* Job Verdict Breakdown */}
             <Card className="bg-card/50 border-border/50 p-8">
-              <h3 className="text-xl font-semibold mb-6">Job Posting Verdict</h3>
+              <h3 className="text-xl font-semibold mb-6">Job Posting Verdicts</h3>
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
@@ -173,7 +196,7 @@ export default function Analytics() {
                     cy="50%"
                     labelLine={false}
                     label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={100}
+                    outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
                   >
@@ -181,136 +204,62 @@ export default function Analytics() {
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card>
-
-            {/* Company Verification */}
-            <Card className="bg-card/50 border-border/50 p-8">
-              <h3 className="text-xl font-semibold mb-6">Company Verification Status</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={platformData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {platformData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card>
-
-            {/* Weekly Trend */}
-            <Card className="bg-card/50 border-border/50 p-8">
-              <h3 className="text-xl font-semibold mb-6">Weekly Activity</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                  <XAxis dataKey="name" stroke="rgba(255,255,255,0.5)" />
-                  <YAxis stroke="rgba(255,255,255,0.5)" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Bar dataKey="scans" fill="#a78bfa" name="Scans" />
-                  <Bar dataKey="reports" fill="#4ade80" name="Reports" />
-                </BarChart>
+                </PieChart>
               </ResponsiveContainer>
             </Card>
           </div>
 
-          {/* Detailed Stats */}
-          <div className="grid md:grid-cols-3 gap-6">
-            <Card className="bg-card/50 border-border/50 p-6">
-              <h4 className="font-semibold mb-4">Top Threats</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Outdated SSL</span>
-                  <span className="font-semibold">28</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Open Ports</span>
-                  <span className="font-semibold">22</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Weak DNS</span>
-                  <span className="font-semibold">18</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Malware</span>
-                  <span className="font-semibold">12</span>
-                </div>
+          {/* Summary */}
+          <Card className="bg-card/50 border-border/50 p-8">
+            <h3 className="text-xl font-semibold mb-6">Summary</h3>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-accent" />
+                  Security Scans
+                </h4>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li>• Total scans performed: <span className="text-foreground font-semibold">{metrics.totalScans}</span></li>
+                  <li>• Vulnerable targets: <span className="text-red-400 font-semibold">{metrics.vulnerableScans}</span></li>
+                  <li>• Safe targets: <span className="text-green-400 font-semibold">{metrics.totalScans - metrics.vulnerableScans}</span></li>
+                </ul>
               </div>
-            </Card>
-
-            <Card className="bg-card/50 border-border/50 p-6">
-              <h4 className="font-semibold mb-4">Fraud Red Flags</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">High Salary</span>
-                  <span className="font-semibold">15</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Vague Role</span>
-                  <span className="font-semibold">12</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Poor Grammar</span>
-                  <span className="font-semibold">10</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Upfront Payment</span>
-                  <span className="font-semibold">8</span>
-                </div>
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-accent" />
+                  Job Analysis
+                </h4>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li>• Total analyses: <span className="text-foreground font-semibold">{metrics.totalReports}</span></li>
+                  <li>• Fake postings: <span className="text-red-400 font-semibold">{metrics.fakeJobs}</span></li>
+                  <li>• Legitimate postings: <span className="text-green-400 font-semibold">{metrics.totalReports - metrics.fakeJobs}</span></li>
+                </ul>
               </div>
-            </Card>
-
-            <Card className="bg-card/50 border-border/50 p-6">
-              <h4 className="font-semibold mb-4">Verification Platforms</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">LinkedIn</span>
-                  <span className="font-semibold text-green-400">✓</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Crunchbase</span>
-                  <span className="font-semibold text-green-400">✓</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">BBB</span>
-                  <span className="font-semibold text-yellow-400">~</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">SEC Filings</span>
-                  <span className="font-semibold text-red-400">✗</span>
-                </div>
-              </div>
-            </Card>
-          </div>
+            </div>
+          </Card>
 
           {/* Action Buttons */}
-          <div className="mt-8 flex gap-4 justify-center">
+          <div className="flex gap-4 mt-8">
+            <Button
+              onClick={() => navigate("/scanner")}
+              className="flex-1 bg-accent hover:bg-accent/90"
+            >
+              Run New Scan
+            </Button>
+            <Button
+              onClick={() => navigate("/job-detector")}
+              className="flex-1 bg-accent hover:bg-accent/90"
+            >
+              Analyze Job Posting
+            </Button>
             <Button
               onClick={() => navigate("/reports")}
               variant="outline"
+              className="flex-1"
             >
-              View Detailed Reports
-            </Button>
-            <Button
-              onClick={() => navigate("/dashboard")}
-              className="bg-accent hover:bg-accent/90"
-            >
-              Back to Dashboard
+              View All Reports
             </Button>
           </div>
         </div>

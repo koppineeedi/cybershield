@@ -3,15 +3,78 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
-import { Shield, ArrowLeft, Search, AlertTriangle, CheckCircle, AlertCircle, Filter } from "lucide-react";
-import { useState } from "react";
+import { Shield, ArrowLeft, Search, AlertTriangle, CheckCircle, AlertCircle, Download } from "lucide-react";
+import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function SavedReports() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"all" | "vulnerability" | "job" | "company">("all");
+  const [selectedReport, setSelectedReport] = useState<any>(null);
 
+  // Fetch real data from tRPC - must be called unconditionally
+  const { data: userScans } = trpc.scanner.getUserScans.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+  const { data: userJobReports } = trpc.jobDetector.getUserReports.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+
+  // Combine and format all reports - must be called unconditionally
+  const allReports = useMemo(() => {
+    const reports: any[] = [];
+
+    // Add vulnerability scans
+    if (userScans) {
+      userScans.forEach((scan: any) => {
+        reports.push({
+          id: `scan-${scan.id}`,
+          type: "vulnerability",
+          title: `${scan.scanType.toUpperCase()} Scan - ${scan.targetIpOrUrl}`,
+          target: scan.targetIpOrUrl,
+          threatLevel: scan.threatLevel,
+          date: new Date(scan.createdAt).toLocaleDateString(),
+          analysis: scan.analysis,
+          vulnerabilities: JSON.parse(scan.vulnerabilities || "[]"),
+          fullData: scan,
+        });
+      });
+    }
+
+    // Add job reports
+    if (userJobReports) {
+      userJobReports.forEach((report: any) => {
+        reports.push({
+          id: `job-${report.id}`,
+          type: "job",
+          title: `${report.jobTitle} - ${report.companyName}`,
+          target: `${report.jobTitle}`,
+          verdict: report.verdict,
+          date: new Date(report.createdAt).toLocaleDateString(),
+          analysis: report.analysis,
+          redFlags: JSON.parse(report.redFlags || "[]"),
+          fullData: report,
+        });
+      });
+    }
+
+    return reports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [userScans, userJobReports]);
+
+  // Filter reports based on search and type - must be called unconditionally
+  const filteredReports = useMemo(() => {
+    return allReports.filter((report) => {
+      const matchesSearch = report.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        report.target.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesType = filterType === "all" || report.type === filterType;
+      return matchesSearch && matchesType;
+    });
+  }, [allReports, searchTerm, filterType]);
+
+  // Now we can safely return early if not authenticated
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
@@ -31,88 +94,93 @@ export default function SavedReports() {
     );
   }
 
-  // Mock data for reports
-  const mockReports = [
-    {
-      id: 1,
-      type: "vulnerability",
-      title: "Critical Vulnerability Detected",
-      target: "192.168.1.100",
-      threatLevel: "critical",
-      date: "2026-07-04",
-      reports: 3,
-    },
-    {
-      id: 2,
-      type: "job",
-      title: "Suspicious Job Posting",
-      target: "Senior Developer - TechCorp",
-      verdict: "fake",
-      date: "2026-07-03",
-      reports: 5,
-    },
-    {
-      id: 3,
-      type: "company",
-      title: "Company Verification",
-      target: "Acme Corporation",
-      verified: true,
-      date: "2026-07-02",
-      reports: 1,
-    },
-    {
-      id: 4,
-      type: "vulnerability",
-      title: "Warning Level Threat",
-      target: "example.com",
-      threatLevel: "warning",
-      date: "2026-07-01",
-      reports: 2,
-    },
-    {
-      id: 5,
-      type: "job",
-      title: "Suspicious Job Posting",
-      target: "Work From Home - DataEntry",
-      verdict: "suspicious",
-      date: "2026-06-30",
-      reports: 8,
-    },
-  ];
-
-  const filteredReports = mockReports.filter((report) => {
-    const matchesSearch = report.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.target.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterType === "all" || report.type === filterType;
-    return matchesSearch && matchesFilter;
-  });
-
-  const getReportIcon = (type: string, level?: string, verdict?: string) => {
-    if (type === "vulnerability") {
-      if (level === "critical") return <AlertTriangle className="w-5 h-5 text-red-400" />;
-      if (level === "warning") return <AlertCircle className="w-5 h-5 text-yellow-400" />;
-      return <CheckCircle className="w-5 h-5 text-green-400" />;
-    }
-    if (type === "job") {
-      if (verdict === "fake") return <AlertTriangle className="w-5 h-5 text-red-400" />;
-      if (verdict === "suspicious") return <AlertCircle className="w-5 h-5 text-yellow-400" />;
-      return <CheckCircle className="w-5 h-5 text-green-400" />;
-    }
-    return <CheckCircle className="w-5 h-5 text-green-400" />;
+  // Export report as JSON
+  const handleExport = (report: any) => {
+    const dataStr = JSON.stringify(report.fullData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `report-${report.id}-${new Date().toISOString()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Report exported successfully!");
   };
 
-  const getReportBadgeColor = (type: string, level?: string, verdict?: string) => {
-    if (type === "vulnerability") {
-      if (level === "critical") return "bg-red-400/10 text-red-400 border-red-400/30";
-      if (level === "warning") return "bg-yellow-400/10 text-yellow-400 border-yellow-400/30";
-      return "bg-green-400/10 text-green-400 border-green-400/30";
+  // Export all reports as CSV
+  const handleExportAll = () => {
+    if (filteredReports.length === 0) {
+      toast.error("No reports to export");
+      return;
     }
-    if (type === "job") {
-      if (verdict === "fake") return "bg-red-400/10 text-red-400 border-red-400/30";
-      if (verdict === "suspicious") return "bg-yellow-400/10 text-yellow-400 border-yellow-400/30";
-      return "bg-green-400/10 text-green-400 border-green-400/30";
+
+    const headers = ["ID", "Type", "Title", "Target", "Status", "Date"];
+    const rows = filteredReports.map((report) => [
+      report.id,
+      report.type,
+      report.title,
+      report.target,
+      report.threatLevel || report.verdict || "N/A",
+      report.date,
+    ]);
+
+    const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cybershield-reports-${new Date().toISOString()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("All reports exported successfully!");
+  };
+
+  const getStatusColor = (report: any) => {
+    if (report.threatLevel) {
+      switch (report.threatLevel) {
+        case "safe":
+          return "text-green-400";
+        case "warning":
+          return "text-yellow-400";
+        case "critical":
+          return "text-red-400";
+      }
     }
-    return "bg-green-400/10 text-green-400 border-green-400/30";
+    if (report.verdict) {
+      switch (report.verdict) {
+        case "real":
+          return "text-green-400";
+        case "fake":
+          return "text-red-400";
+        case "suspicious":
+          return "text-yellow-400";
+      }
+    }
+    return "text-gray-400";
+  };
+
+  const getStatusIcon = (report: any) => {
+    if (report.threatLevel) {
+      switch (report.threatLevel) {
+        case "safe":
+          return <CheckCircle className="w-5 h-5" />;
+        case "warning":
+          return <AlertCircle className="w-5 h-5" />;
+        case "critical":
+          return <AlertTriangle className="w-5 h-5" />;
+      }
+    }
+    if (report.verdict) {
+      switch (report.verdict) {
+        case "real":
+          return <CheckCircle className="w-5 h-5" />;
+        case "fake":
+          return <AlertTriangle className="w-5 h-5" />;
+        case "suspicious":
+          return <AlertCircle className="w-5 h-5" />;
+      }
+    }
+    return null;
   };
 
   return (
@@ -137,126 +205,200 @@ export default function SavedReports() {
           <div className="mb-8">
             <h1 className="text-4xl font-bold mb-2">Saved Reports</h1>
             <p className="text-muted-foreground">
-              View all your security scans and fraud reports. Help the community by sharing threat data.
+              View and manage all your security scans and analyses.
             </p>
           </div>
 
           {/* Search and Filter */}
-          <div className="grid md:grid-cols-2 gap-4 mb-8">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search reports..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-input border-border/50"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Filter className="w-5 h-5 text-muted-foreground mt-3" />
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as any)}
-                className="flex-1 px-3 py-2 bg-input border border-border/50 rounded-md text-foreground"
-              >
-                <option value="all">All Reports</option>
-                <option value="vulnerability">Vulnerabilities</option>
-                <option value="job">Job Postings</option>
-                <option value="company">Companies</option>
-              </select>
-            </div>
-          </div>
+          <Card className="bg-card/50 border-border/50 p-6 mb-8">
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
+                <Input
+                  placeholder="Search reports by title or target..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 bg-input border-border/50"
+                />
+              </div>
 
-          {/* Reports List */}
-          <div className="space-y-4">
-            {filteredReports.length > 0 ? (
-              filteredReports.map((report) => (
-                <Card
-                  key={report.id}
-                  className="bg-card/50 border-border/50 hover:border-accent/50 transition-all p-6 cursor-pointer group"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-4 flex-1">
-                      <div className="mt-1">
-                        {getReportIcon(
-                          report.type,
-                          (report as any).threatLevel,
-                          (report as any).verdict
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold group-hover:text-accent transition-colors">
-                            {report.title}
-                          </h3>
-                          <span className={`text-xs px-2 py-1 rounded border ${getReportBadgeColor(
-                            report.type,
-                            (report as any).threatLevel,
-                            (report as any).verdict
-                          )}`}>
-                            {report.type === "vulnerability" && (report as any).threatLevel?.toUpperCase()}
-                            {report.type === "job" && (report as any).verdict?.toUpperCase()}
-                            {report.type === "company" && "VERIFIED"}
-                          </span>
-                        </div>
-                        <p className="text-muted-foreground mb-2">{report.target}</p>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span>📅 {report.date}</span>
-                          <span>👥 {report.reports} report{report.reports !== 1 ? "s" : ""}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-1"
-                    >
-                      View Details
-                    </Button>
-                  </div>
-                </Card>
-              ))
-            ) : (
-              <Card className="bg-card/50 border-border/50 p-12 text-center">
-                <p className="text-muted-foreground mb-4">No reports found matching your search.</p>
+              <div className="flex gap-2 flex-wrap">
                 <Button
-                  onClick={() => navigate("/scanner")}
-                  className="bg-accent hover:bg-accent/90"
+                  variant={filterType === "all" ? "default" : "outline"}
+                  onClick={() => setFilterType("all")}
+                  className={filterType === "all" ? "bg-accent" : ""}
                 >
-                  Create Your First Report
+                  All Reports
                 </Button>
-              </Card>
-            )}
-          </div>
+                <Button
+                  variant={filterType === "vulnerability" ? "default" : "outline"}
+                  onClick={() => setFilterType("vulnerability")}
+                  className={filterType === "vulnerability" ? "bg-accent" : ""}
+                >
+                  Vulnerabilities
+                </Button>
+                <Button
+                  variant={filterType === "job" ? "default" : "outline"}
+                  onClick={() => setFilterType("job")}
+                  className={filterType === "job" ? "bg-accent" : ""}
+                >
+                  Job Postings
+                </Button>
 
-          {/* Community Stats */}
-          <div className="mt-12 grid md:grid-cols-4 gap-4">
-            <Card className="bg-card/50 border-border/50 p-6 text-center">
-              <div className="text-3xl font-bold text-accent mb-2">
-                {filteredReports.length}
+                {filteredReports.length > 0 && (
+                  <Button
+                    onClick={handleExportAll}
+                    className="ml-auto bg-accent hover:bg-accent/90"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export All
+                  </Button>
+                )}
               </div>
-              <p className="text-muted-foreground">Your Reports</p>
-            </Card>
-            <Card className="bg-card/50 border-border/50 p-6 text-center">
-              <div className="text-3xl font-bold text-accent mb-2">
-                {filteredReports.reduce((sum, r) => sum + r.reports, 0)}
-              </div>
-              <p className="text-muted-foreground">Community Reports</p>
-            </Card>
-            <Card className="bg-card/50 border-border/50 p-6 text-center">
-              <div className="text-3xl font-bold text-accent mb-2">
-                {filteredReports.filter(r => r.type === "job").length}
-              </div>
-              <p className="text-muted-foreground">Fraud Cases</p>
-            </Card>
-            <Card className="bg-card/50 border-border/50 p-6 text-center">
-              <div className="text-3xl font-bold text-accent mb-2">
-                {filteredReports.filter(r => r.type === "vulnerability").length}
-              </div>
-              <p className="text-muted-foreground">Threats Detected</p>
-            </Card>
-          </div>
+            </div>
+          </Card>
+
+          {/* Reports List or Detail View */}
+          {selectedReport ? (
+            // Detail View
+            <div className="space-y-6">
+              <Button
+                onClick={() => setSelectedReport(null)}
+                variant="outline"
+                className="mb-4"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Reports
+              </Button>
+
+              <Card className="bg-card/50 border-border/50 p-8">
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <h2 className="text-3xl font-bold mb-2">{selectedReport.title}</h2>
+                    <p className="text-muted-foreground">
+                      {selectedReport.type.charAt(0).toUpperCase() + selectedReport.type.slice(1)} Report • {selectedReport.date}
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => handleExport(selectedReport)}
+                    className="bg-accent hover:bg-accent/90"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </Button>
+                </div>
+
+                {/* Status */}
+                <div className="mb-6 p-4 bg-card/50 rounded-lg border border-border/50 flex items-center gap-3">
+                  <div className={getStatusColor(selectedReport)}>
+                    {getStatusIcon(selectedReport)}
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Status</p>
+                    <p className={`font-semibold ${getStatusColor(selectedReport)}`}>
+                      {(selectedReport.threatLevel || selectedReport.verdict || "Unknown").toUpperCase()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Analysis */}
+                <div className="mb-6">
+                  <h3 className="text-xl font-semibold mb-3">Analysis</h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    {selectedReport.analysis || "No analysis available"}
+                  </p>
+                </div>
+
+                {/* Vulnerabilities or Red Flags */}
+                {selectedReport.vulnerabilities && selectedReport.vulnerabilities.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-xl font-semibold mb-3">Detected Vulnerabilities</h3>
+                    <div className="space-y-2">
+                      {selectedReport.vulnerabilities.map((vuln: string, idx: number) => (
+                        <div key={idx} className="flex items-center gap-3 p-3 bg-card/50 rounded-lg">
+                          <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                          <span>{vuln}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedReport.redFlags && selectedReport.redFlags.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-xl font-semibold mb-3">Red Flags</h3>
+                    <div className="space-y-2">
+                      {selectedReport.redFlags.map((flag: string, idx: number) => (
+                        <div key={idx} className="flex items-center gap-3 p-3 bg-card/50 rounded-lg">
+                          <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                          <span>{flag}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Raw Data */}
+                <div className="mt-6 p-4 bg-card/50 rounded-lg border border-border/50">
+                  <h3 className="text-sm font-semibold mb-2">Raw Data</h3>
+                  <pre className="text-xs text-muted-foreground overflow-auto max-h-48">
+                    {JSON.stringify(selectedReport.fullData, null, 2)}
+                  </pre>
+                </div>
+              </Card>
+            </div>
+          ) : (
+            // Reports List
+            <>
+              {filteredReports.length === 0 ? (
+                <Card className="bg-card/50 border-border/50 p-12 text-center">
+                  <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold mb-2">No Reports Found</h3>
+                  <p className="text-muted-foreground mb-6">
+                    {searchTerm || filterType !== "all"
+                      ? "Try adjusting your search or filters"
+                      : "Start by running a scan or analyzing a job posting"}
+                  </p>
+                  <Button
+                    onClick={() => navigate("/dashboard")}
+                    className="bg-accent hover:bg-accent/90"
+                  >
+                    Go to Dashboard
+                  </Button>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Showing {filteredReports.length} report{filteredReports.length !== 1 ? "s" : ""}
+                  </p>
+                  {filteredReports.map((report) => (
+                    <Card
+                      key={report.id}
+                      className="bg-card/50 border-border/50 p-4 hover:bg-card/70 cursor-pointer transition-colors"
+                      onClick={() => setSelectedReport(report)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className={getStatusColor(report)}>
+                            {getStatusIcon(report)}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold">{report.title}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {report.type.charAt(0).toUpperCase() + report.type.slice(1)} • {report.date}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`px-3 py-1 rounded text-sm font-semibold ${getStatusColor(report)}`}>
+                          {(report.threatLevel || report.verdict || "Unknown").toUpperCase()}
+                        </span>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </main>
     </div>
