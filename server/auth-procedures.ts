@@ -31,13 +31,24 @@ export const authRouter = router({
       const passwordHash = await bcrypt.hash(input.password, 12);
       const verificationCode = crypto.randomBytes(3).toString("hex").toUpperCase();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      
+      // Create user with pending email verification
+      const newUser = await db.createUser({
+        email: input.email,
+        passwordHash,
+        name: input.fullName,
+        isEmailVerified: 0,
+      });
+      
+      // Create verification token linked to the new user
       await db.createTwoFactorToken({
-        userId: 0,
+        userId: newUser.id,
         token: verificationCode,
         tokenType: "email_verification",
         expiresAt,
         isUsed: 0,
       });
+      
       console.log(`[Auth] Verification code for ${input.email}: ${verificationCode}`);
       return { success: true, message: "Verification code sent to email" };
     }),
@@ -115,7 +126,16 @@ export const authRouter = router({
         console.log(`[Auth] 2FA code for ${user.email}: ${twoFactorCode}`);
         return { success: true, requires2FA: true, message: "2FA code sent" };
       }
-      return { success: true, requires2FA: false, user };
+      // Create user session
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      await db.createUserSession({
+        userId: user.id,
+        token: sessionToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        isActive: 1,
+      });
+
+      return { success: true, requires2FA: false, user, sessionToken };
     }),
   verify2FA: publicProcedure
     .input(z.object({
@@ -135,7 +155,16 @@ export const authRouter = router({
       if (!user) {
         throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
       }
-      return { success: true, user };
+      // Create user session
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      await db.createUserSession({
+        userId: user.id,
+        token: sessionToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        isActive: 1,
+      });
+
+      return { success: true, user, sessionToken };
     }),
   enable2FA: protectedProcedure
     .input(z.object({
